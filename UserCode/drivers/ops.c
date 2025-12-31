@@ -205,8 +205,8 @@ static void OPS_ParseData(OPS_t* ops)
     ops->feedback.zangle = values[0];
     ops->feedback.xangle = values[1];
     ops->feedback.yangle = values[2];
-    ops->feedback.pos_y  = values[3] * 1e-3f;
-    ops->feedback.pos_x  = values[4] * 1e-3f;
+    ops->feedback.pos_x  = values[3] * 1e-3f;
+    ops->feedback.pos_y  = values[4] * 1e-3f;
     ops->feedback.w_z    = values[5];
 
     // 解算车体位置
