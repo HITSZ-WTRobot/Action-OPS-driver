@@ -14,28 +14,50 @@ extern "C"
 {
 #endif
 
+#define DEG2RAD(__DEG__) ((__DEG__) * 3.14159265358979323846f / 180.0f)
+
+#define OPS_HEAD1 (0x0D)
+#define OPS_HEAD2 (0x0A)
+
+#define OPS_TAIL1 (0x0A)
+#define OPS_TAIL2 (0x0D)
+
+#define OPS_FRAME_LEN (28)
+
+typedef enum
+{
+    OPS_SYNC_WAIT_HEAD1 = 0U,
+    OPS_SYNC_WAIT_HEAD2,
+    OPS_SYNC_RECEIVING,
+    OPS_SYNC_DMA_ACTIVE,
+} OPS_Sync_State_t;
+
 /**
  * @brief OPS设备结构体
+ *
+ * @attention 需要开启 RX DMA 并设置为循环模式
  */
 typedef struct
 {
+    // 发送锁
+    osMutexId_t lock;
+
     UART_HandleTypeDef* huart;
 
-    float pos_x;  // X坐标（单位：m）
-    float pos_y;  // Y坐标（单位：m）
-    float zangle; // Z轴角度（航向角，单位：度）
-    float xangle; // X轴角度（单位：度）
-    float yangle; // Y轴角度（单位：度）
-    float w_z;    // Z轴角速度（单位：dps）
+    OPS_Sync_State_t sync_state; ///< 接收状态
 
-    uint8_t  rx_buf[50];  // 接收缓冲区
-    uint8_t  tx_buf[256]; // 发送缓冲区
-    uint16_t tx_len;      // 待发送数据长度
-    uint8_t  recv_state;  // 接收状态机（0-4）
-    uint8_t  parse_idx;   // 数据解析索引
+    struct
+    {
+        float pos_x;  // X坐标（单位：m）
+        float pos_y;  // Y坐标（单位：m）
+        float zangle; // Z轴角度（航向角，单位：度）
+        float xangle; // X轴角度（单位：度）
+        float yangle; // Y轴角度（单位：度）
+        float w_z;    // Z轴角速度（单位：dps）
+    } feedback;
 
-    float x_offset;   // X轴偏移（mm，OPS在车体中心前方为正）
-    float y_offset;   // Y轴偏移（mm，OPS在车体中心左侧为正）
+    float x_offset;   // X轴偏移（m，OPS在车体中心前方为正）
+    float y_offset;   // Y轴偏移（m，OPS在车体中心左侧为正）
     float yaw_offset; // 初始角度偏移（度，逆时针为正）
 
     float* gyro_yaw;           // 车体中心偏航角（度，逆时针为正，由陀螺仪获得）
@@ -45,30 +67,47 @@ typedef struct
     float Cy;      // 车体相对世界坐标系位姿y（单位：m）
     float yaw_car; // 车体相对世界坐标系位姿yaw（单位：度）
 
-    union
-    {
-        uint8_t data[24];
-        float   val[6];
-    } posture;
+    uint8_t rx_buffer[OPS_FRAME_LEN];
+
+#ifdef DEBUG
+    uint32_t sync_count;  ///< 同步计数
+    uint32_t frame_count; ///< 帧数
+    uint32_t error_count; ///< 错误帧数
+#endif
 } OPS_t;
 
 typedef struct
 {
-    float  x_offset;   // X轴偏移（mm，OPS在车体中心前方为正）
-    float  y_offset;   // Y轴偏移（mm，OPS在车体中心左侧为正）
-    float  yaw_offset; // 初始角度偏移（度，逆时针为正）
-    float* yaw_car;    // 车体中心偏航角（度，逆时针为正，由陀螺仪获得）
+    UART_HandleTypeDef* huart;
+    float               x_offset;   /// X轴偏移（mm，OPS在车体中心前方为正）
+    float               y_offset;   /// Y轴偏移（mm，OPS在车体中心左侧为正）
+    float               yaw_offset; /// 初始角度偏移（度，逆时针为正）
+    float*              yaw_car;    /// 车体中心偏航角（度，逆时针为正，由陀螺仪获得）
 } OPS_config_t;
 
-void OPS_Init(OPS_t* ops, OPS_config_t* ops_config);   // 初始化
-void OPS_Calibration(OPS_t* ops);                      // 校准（发送"ACTR"命令）
+void OPS_Init(OPS_t* ops, OPS_config_t* ops_config); // 初始化
+// void OPS_Calibration(OPS_t* ops);                      // 校准（发送"ACTR"命令）
+
 void OPS_ZeroClearing(OPS_t* ops);                     // 清零（发送"ACT0"命令）
-void OPS_UpdateYaw(OPS_t* ops, float angle);           // 更新航向角（ACTJ命令）
-void OPS_UpdateX(OPS_t* ops, float posx);              // 更新X坐标（ACTX命令）
-void OPS_UpdateY(OPS_t* ops, float posy);              // 更新Y坐标（ACTY命令）
+void OPS_UpdateYaw(const OPS_t* ops, float angle);     // 更新航向角（ACTJ命令）
+void OPS_UpdateX(const OPS_t* ops, float posx);        // 更新X坐标（ACTX命令）
+void OPS_UpdateY(const OPS_t* ops, float posy);        // 更新Y坐标（ACTY命令）
 void OPS_UpdateXY(OPS_t* ops, float posx, float posy); // 更新XY坐标（ACTD命令）
-void OPS_HAL_UART_RxCpltCallback(OPS_t* ops);          // 中断处理
-void OPS_WorldCoord_Reset(OPS_t* ops);                 // 重置坐标系
+
+void OPS_WorldCoord_Reset(OPS_t* ops); // 重置坐标系
+
+void OPS_RxCpltCallback(OPS_t* ops); // 中断处理
+void OPS_RxErrorHandler(OPS_t* ops); // 接收错误处理
+
+static float* OPS_GetBodyXPtr(OPS_t* ops)
+{
+    return &ops->Cx;
+}
+
+static float* OPS_GetBodyYPtr(OPS_t* ops)
+{
+    return &ops->Cy;
+}
 
 #ifdef __cplusplus
 }
