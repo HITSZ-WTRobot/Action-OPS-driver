@@ -43,15 +43,16 @@ void OPS_Init(OPS_t* ops, OPS_config_t* ops_config)
 
     memset(ops->rx_buffer, 0, sizeof(ops->rx_buffer));
 
-    ops->gyro_yaw           = ops_config->yaw_car;
-    ops->gyro_yaw_zeropoint = 0.0f;
-    ops->Cx                 = 0.0f;
-    ops->Cy                 = 0.0f;
-    ops->yaw_car            = 0.0f;
+    ops->gyro_yaw                = ops_config->yaw_car;
+    ops->gyro_yaw_body_zeropoint = 0.0f;
+    ops->Cx                      = 0.0f;
+    ops->Cy                      = 0.0f;
+    ops->yaw_car                 = 0.0f;
 
     ops->x_offset       = ops_config->x_offset * 1e-3f; // mm to m
     ops->y_offset       = ops_config->y_offset * 1e-3f; // mm to m
-    ops->yaw_offset     = ops_config->yaw_offset;
+    ops->cos_yaw_offset = cosf(DEG2RAD(ops_config->yaw_offset));
+    ops->sin_yaw_offset = sinf(DEG2RAD(ops_config->yaw_offset));
 
     HAL_UART_Receive_IT(ops->huart, &ops->rx_buffer[0], 1);
 }
@@ -153,6 +154,42 @@ void OPS_UpdateXY(OPS_t* ops, float posx, float posy)
 }
 
 /**
+ * @brief  解算车体中心位姿
+ * @param  ops: OPS位姿数据指针
+ */
+static void CarCenterPose_Calc(OPS_t* ops)
+{
+    // 认为 OPS_World 相对于 World 的位姿即为 OPS 相对于 Body 的位姿
+    // OPS 在 OPS_World 中的位置
+    const float ops_x_ow = ops->feedback.pos_x;
+    const float ops_y_ow = ops->feedback.pos_y;
+    // Body 在 World 中的 yaw
+    const float body_yaw_w = *ops->gyro_yaw - ops->gyro_yaw_body_zeropoint;
+
+    // 角度范围修正
+    // while (yaw_car_raw >= 180.0f)
+    //     yaw_car_raw -= 360.0f;
+    // while (yaw_car_raw < -180.0f)
+    //     yaw_car_raw += 360.0f;
+
+    // 计算OPS相对于世界坐标系的实际偏航角（车体角+安装角偏移）
+    const float body_yaw_rad = DEG2RAD(body_yaw_w);
+
+    const float cos_body_yaw = cosf(body_yaw_rad);
+    const float sin_body_yaw = sinf(body_yaw_rad);
+
+    // 解算车体中心的世界坐标（Cx, Cy）
+    ops->Cx = ops->x_offset +                                               //
+              ops->cos_yaw_offset * ops_x_ow - cos_body_yaw * ops->x_offset //
+              - ops->sin_yaw_offset * ops_y_ow + sin_body_yaw * ops->y_offset;
+
+    ops->Cy = ops->y_offset +                                               //
+              ops->sin_yaw_offset * ops_x_ow - sin_body_yaw * ops->x_offset //
+              + ops->cos_yaw_offset * ops_y_ow - cos_body_yaw * ops->y_offset;
+    ops->yaw_car = body_yaw_rad;
+}
+
+/**
  * @brief  OPS数据帧解析
  * @param  ops: OPS设备句柄指针
  * @frame_format: 0X0D(帧头1) + 0X0A(帧头2) + 24字节数据 + 0X0A(帧尾1) + 0X0D(帧尾2)
@@ -168,7 +205,7 @@ static void OPS_ParseData(OPS_t* ops)
     ops->feedback.zangle = values[0];
     ops->feedback.xangle = values[1];
     ops->feedback.yangle = values[2];
-    ops->feedback.pos_y  = -values[3] * 1e-3f;
+    ops->feedback.pos_y  = values[3] * 1e-3f;
     ops->feedback.pos_x  = values[4] * 1e-3f;
     ops->feedback.w_z    = values[5];
 
@@ -262,37 +299,9 @@ void OPS_RxCpltCallback(OPS_t* ops)
 void OPS_WorldCoord_Reset(OPS_t* ops)
 {
     OPS_ZeroClearing(ops);
-    ops->gyro_yaw_zeropoint = *ops->gyro_yaw - ops->gyro_yaw_zeropoint;
+    ops->gyro_yaw_body_zeropoint = *ops->gyro_yaw;
 }
 
-/**
- * @brief  解算车体中心位姿
- * @param  ops: OPS位姿数据指针
- */
-void CarCenterPose_Calc(OPS_t* ops)
-{
-    float ops_x_world = ops->pos_x - ops->x_offset;
-    float ops_y_world = ops->pos_y - ops->y_offset;
-    float yaw_car_raw = *ops->gyro_yaw - ops->yaw_offset - ops->gyro_yaw_zeropoint;
-
-    // 角度范围修正
-    yaw_car_raw = fmodf(yaw_car_raw + 180.0f, 360.0f) - 180.0f;
-
-    // 计算OPS相对于世界坐标系的实际偏航角（车体角+安装角偏移）
-    float yaw_total = yaw_car_raw + ops->yaw_offset;
-    float yaw_rad   = yaw_total * 3.1415926f / 180.0f;
-
-    float cos_yaw = cosf(yaw_rad);
-    float sin_yaw = sinf(yaw_rad);
-
-    // 计算OPS相对于车体中心的世界坐标偏移（rx, ry）
-    float rx = ops->x_offset * 1e-3f * cos_yaw + ops->y_offset * 1e-3f * sin_yaw;
-    float ry = ops->x_offset * 1e-3f * sin_yaw - ops->y_offset * 1e-3f * cos_yaw;
-
-    // 解算车体中心的世界坐标（Cx, Cy）
-    ops->Cx      = ops_x_world - rx;
-    ops->Cy      = ops_y_world - ry;
-    ops->yaw_car = yaw_car_raw;
 #ifdef __cplusplus
 }
 #endif

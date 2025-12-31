@@ -1,12 +1,13 @@
 /**
  * @file    ops.h
- * @author  mogegee
+ * @authors mogegee syhanjin
  * @date    2025-12-24
  * @brief   ops全方位平面定位系统
  */
 
 #ifndef __OPS9_H
 #define __OPS9_H
+#include "cmsis_os2.h"
 #include "main.h"
 
 #ifdef __cplusplus
@@ -56,12 +57,13 @@ typedef struct
         float w_z;    // Z轴角速度（单位：dps）
     } feedback;
 
-    float x_offset;   // X轴偏移（m，OPS在车体中心前方为正）
-    float y_offset;   // Y轴偏移（m，OPS在车体中心左侧为正）
-    float yaw_offset; // 初始角度偏移（度，逆时针为正）
+    float x_offset; // X轴偏移（m，OPS在车体中心前方为正）
+    float y_offset; // Y轴偏移（m，OPS在车体中心左侧为正）
+    float cos_yaw_offset;
+    float sin_yaw_offset;
 
-    float* gyro_yaw;           // 车体中心偏航角（度，逆时针为正，由陀螺仪获得）
-    float  gyro_yaw_zeropoint; // 记录零点
+    float* gyro_yaw;                // 车体中心偏航角（度，逆时针为正，由陀螺仪获得）
+    float  gyro_yaw_body_zeropoint; // Body yaw 零点
 
     float Cx;      // 车体相对世界坐标系位姿x（单位：m）
     float Cy;      // 车体相对世界坐标系位姿y（单位：m）
