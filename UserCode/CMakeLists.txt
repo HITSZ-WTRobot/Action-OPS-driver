@@ -70,4 +70,7 @@ endforeach ()
 add_dependencies(${PROJECT_NAME} stm32cubemx)
 target_link_libraries(${PROJECT_NAME} PRIVATE stm32cubemx)
 
+add_dependencies(${PROJECT_NAME} FreeRTOS)
+target_link_libraries(${PROJECT_NAME} PRIVATE FreeRTOS)
+
 target_link_libraries(${PROJECT_NAME} PRIVATE m)
