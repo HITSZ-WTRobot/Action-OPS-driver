@@ -111,6 +111,11 @@ static float* OPS_GetBodyYPtr(OPS_t* ops)
     return &ops->Cy;
 }
 
+static float* OPS_GetBodyYawPtr(OPS_t* ops)
+{
+    return &ops->yaw_car;
+}
+
 #ifdef __cplusplus
 }
 #endif
