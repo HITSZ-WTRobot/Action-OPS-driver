@@ -186,7 +186,7 @@ static void CarCenterPose_Calc(OPS_t* ops)
     ops->Cy = ops->y_offset +                                               //
               ops->sin_yaw_offset * ops_x_ow - sin_body_yaw * ops->x_offset //
               + ops->cos_yaw_offset * ops_y_ow - cos_body_yaw * ops->y_offset;
-    ops->yaw_car = body_yaw_rad;
+    ops->yaw_car = body_yaw_w;
 }
 
 /**
