@@ -149,7 +149,7 @@ void OPS_UpdateXY(OPS_t* ops, float posx, float posy)
     const float value1  = posx * 1000.0f;
     const float value2  = posy * 1000.0f;
     memcpy(cmd + 4, &value1, 4);
-    memcpy(cmd + 8, &value2, 5);
+    memcpy(cmd + 8, &value2, 4);
     OPS_SendData(ops, cmd, sizeof(cmd));
 }
 
