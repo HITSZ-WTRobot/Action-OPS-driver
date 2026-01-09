@@ -9,6 +9,7 @@
 #define __OPS9_H
 #include "cmsis_os2.h"
 #include "main.h"
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C"
@@ -114,6 +115,11 @@ static float* OPS_GetBodyYPtr(OPS_t* ops)
 static float* OPS_GetBodyYawPtr(OPS_t* ops)
 {
     return &ops->yaw_car;
+}
+
+static bool OPS_isConnected(OPS_t* ops)
+{
+    return ops->sync_state == OPS_SYNC_DMA_ACTIVE;
 }
 
 #ifdef __cplusplus
