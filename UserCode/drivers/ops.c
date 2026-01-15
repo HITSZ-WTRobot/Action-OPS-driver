@@ -22,7 +22,7 @@ extern "C"
 #    define DEBUG_SYNC_COUNT(__p__)  ((void*) __p__)
 #endif
 
-static typedef struct
+typedef struct
 {
     float cos;
     float sin;
@@ -159,6 +159,35 @@ void OPS_UpdateXY(OPS_t* ops, float posx, float posy)
 }
 
 /**
+ * @brief  解算车体中心位姿
+ * @param  ops: OPS位姿数据指针
+ */
+static void CarCenterPose_Calc(OPS_t* ops)
+{
+    // 认为 OPS_World 相对于 World 的位姿即为 OPS 相对于 Body 的位姿
+    // OPS 在 OPS_World 中的位置
+    const float xf    = ops->feedback.pos_x;
+    const float yf    = ops->feedback.pos_y;
+    const float yaw_f = *ops->gyro_yaw - ops->gyro_offset;
+
+    // 计算OPS相对于世界坐标系的实际偏航角（车体角+安装角偏移）
+    const float yaw_f_rad = DEG2RAD(yaw_f);
+
+    const R Rf = { .cos = cosf(yaw_f_rad), .sin = sinf(yaw_f_rad) };
+
+    // 解算车体中心的世界坐标（Cx, Cy）
+    ops->Cx = ops->p_offset.x                                    // p_offset
+              + ops->R_base.cos * xf - ops->R_base.sin * yf      //  + R_base * p_ow
+              - Rf.cos * ops->p_base.x + Rf.sin * ops->p_base.y; //  - R_ow * p_base
+
+    ops->Cy = ops->p_offset.y                                    // p_offset
+              + ops->R_base.sin * xf + ops->R_base.cos * yf      //+ R_base * p_ow
+              - Rf.sin * ops->p_base.x - Rf.cos * ops->p_base.y; //  - R_ow * p_base
+
+    ops->Cyaw = yaw_f + ops->R_base.theta;
+}
+
+/**
  * @brief  OPS数据帧解析
  * @param  ops: OPS设备句柄指针
  * @frame_format: 0X0D(帧头1) + 0X0A(帧头2) + 24字节数据 + 0X0A(帧尾1) + 0X0D(帧尾2)
@@ -259,35 +288,6 @@ void OPS_RxCpltCallback(OPS_t* ops)
             ops->sync_state = OPS_SYNC_WAIT_HEAD1;
         }
     }
-}
-
-/**
- * @brief  解算车体中心位姿
- * @param  ops: OPS位姿数据指针
- */
-static void CarCenterPose_Calc(OPS_t* ops)
-{
-    // 认为 OPS_World 相对于 World 的位姿即为 OPS 相对于 Body 的位姿
-    // OPS 在 OPS_World 中的位置
-    const float xf    = ops->feedback.pos_x;
-    const float yf    = ops->feedback.pos_y;
-    const float yaw_f = *ops->gyro_yaw - ops->gyro_offset;
-
-    // 计算OPS相对于世界坐标系的实际偏航角（车体角+安装角偏移）
-    const float yaw_f_rad = DEG2RAD(yaw_f);
-
-    const R Rf = { .cos = cosf(yaw_f_rad), .sin = sinf(yaw_f_rad) };
-
-    // 解算车体中心的世界坐标（Cx, Cy）
-    ops->Cx = ops->p_offset.x                                    // p_offset
-              + ops->R_base.cos * xf - ops->R_base.sin * yf      //  + R_base * p_ow
-              - Rf.cos * ops->p_base.x + Rf.sin * ops->p_base.y; //  - R_ow * p_base
-
-    ops->Cy = ops->p_offset.y                                    // p_offset
-              + ops->R_base.sin * xf + ops->R_base.cos * yf      //+ R_base * p_ow
-              - Rf.sin * ops->p_base.x - Rf.cos * ops->p_base.y; //  - R_ow * p_base
-
-    ops->Cyaw = yaw_f + ops->R_base.theta;
 }
 
 /**
