@@ -22,6 +22,12 @@ extern "C"
 #    define DEBUG_SYNC_COUNT(__p__)  ((void*) __p__)
 #endif
 
+typedef struct
+{
+    float cos;
+    float sin;
+} R;
+
 /**
  * @brief  OPS模块初始化
  * @param  ops: OPS设备句柄
@@ -43,16 +49,15 @@ void OPS_Init(OPS_t* ops, OPS_config_t* ops_config)
 
     memset(ops->rx_buffer, 0, sizeof(ops->rx_buffer));
 
-    ops->gyro_yaw                = ops_config->yaw_car;
-    ops->gyro_yaw_body_zeropoint = 0.0f;
-    ops->Cx                      = 0.0f;
-    ops->Cy                      = 0.0f;
-    ops->yaw_car                 = 0.0f;
+    ops->gyro_yaw    = ops_config->yaw_car;
+    ops->gyro_offset = 0.0f;
+    ops->Cx          = 0.0f;
+    ops->Cy          = 0.0f;
+    ops->Cyaw        = 0.0f;
 
-    ops->x_offset       = ops_config->x_offset * 1e-3f; // mm to m
-    ops->y_offset       = ops_config->y_offset * 1e-3f; // mm to m
-    ops->cos_yaw_offset = cosf(DEG2RAD(ops_config->yaw_offset));
-    ops->sin_yaw_offset = sinf(DEG2RAD(ops_config->yaw_offset));
+    ops->setup.x   = ops_config->x_offset * 1e-3f; // mm to m
+    ops->setup.y   = ops_config->y_offset * 1e-3f; // mm to m
+    ops->setup.yaw = ops_config->yaw_offset;
 
     HAL_UART_Receive_IT(ops->huart, &ops->rx_buffer[0], 1);
 }
@@ -161,32 +166,25 @@ static void CarCenterPose_Calc(OPS_t* ops)
 {
     // 认为 OPS_World 相对于 World 的位姿即为 OPS 相对于 Body 的位姿
     // OPS 在 OPS_World 中的位置
-    const float ops_x_ow = ops->feedback.pos_x;
-    const float ops_y_ow = ops->feedback.pos_y;
-    // Body 在 World 中的 yaw
-    const float body_yaw_w = *ops->gyro_yaw - ops->gyro_yaw_body_zeropoint;
-
-    // 角度范围修正
-    // while (yaw_car_raw >= 180.0f)
-    //     yaw_car_raw -= 360.0f;
-    // while (yaw_car_raw < -180.0f)
-    //     yaw_car_raw += 360.0f;
+    const float xf    = ops->feedback.pos_x;
+    const float yf    = ops->feedback.pos_y;
+    const float yaw_f = *ops->gyro_yaw - ops->gyro_offset;
 
     // 计算OPS相对于世界坐标系的实际偏航角（车体角+安装角偏移）
-    const float body_yaw_rad = DEG2RAD(body_yaw_w);
+    const float yaw_f_rad = DEG2RAD(yaw_f);
 
-    const float cos_body_yaw = cosf(body_yaw_rad);
-    const float sin_body_yaw = sinf(body_yaw_rad);
+    const R Rf = { .cos = cosf(yaw_f_rad), .sin = sinf(yaw_f_rad) };
 
     // 解算车体中心的世界坐标（Cx, Cy）
-    ops->Cx = ops->x_offset +                                               //
-              ops->cos_yaw_offset * ops_x_ow - cos_body_yaw * ops->x_offset //
-              - ops->sin_yaw_offset * ops_y_ow + sin_body_yaw * ops->y_offset;
+    ops->Cx = ops->p_offset.x                                    // p_offset
+              + ops->R_base.cos * xf - ops->R_base.sin * yf      //  + R_base * p_ow
+              - Rf.cos * ops->p_base.x + Rf.sin * ops->p_base.y; //  - R_ow * p_base
 
-    ops->Cy = ops->y_offset +                                               //
-              ops->sin_yaw_offset * ops_x_ow - sin_body_yaw * ops->x_offset //
-              + ops->cos_yaw_offset * ops_y_ow - cos_body_yaw * ops->y_offset;
-    ops->yaw_car = body_yaw_w;
+    ops->Cy = ops->p_offset.y                                    // p_offset
+              + ops->R_base.sin * xf + ops->R_base.cos * yf      //+ R_base * p_ow
+              - Rf.sin * ops->p_base.x - Rf.cos * ops->p_base.y; //  - R_ow * p_base
+
+    ops->Cyaw = yaw_f + ops->theta_offset;
 }
 
 /**
@@ -299,7 +297,40 @@ void OPS_RxCpltCallback(OPS_t* ops)
 void OPS_WorldCoord_Reset(OPS_t* ops)
 {
     OPS_ZeroClearing(ops);
-    ops->gyro_yaw_body_zeropoint = *ops->gyro_yaw;
+    ops->gyro_offset = *ops->gyro_yaw;
+
+    ops->p_base.x = ops->setup.x;
+    ops->p_base.y = ops->setup.y;
+
+    ops->p_offset.x = ops->setup.x;
+    ops->p_offset.y = ops->setup.y;
+
+    ops->theta_offset = 0;
+    ops->R_base.cos   = cosf(DEG2RAD(ops->setup.yaw));
+    ops->R_base.sin   = sinf(DEG2RAD(ops->setup.yaw));
+}
+
+void OPS_ResetByWorldPose(OPS_t* ops, const float x, const float y, const float yaw)
+{
+    OPS_ZeroClearing(ops);
+    ops->gyro_offset = *ops->gyro_yaw;
+
+    const float yaw_rad = DEG2RAD(yaw);
+    const R     Rn      = {
+                 .cos = cosf(yaw_rad),
+                 .sin = sinf(yaw_rad),
+    };
+
+    ops->p_base.x = Rn.cos * ops->setup.x - Rn.sin * ops->setup.y;
+    ops->p_base.y = Rn.sin * ops->setup.x + Rn.cos * ops->setup.y;
+
+    ops->p_offset.x = ops->p_base.x + x;
+    ops->p_offset.y = ops->p_base.y + y;
+
+    ops->theta_offset        = yaw;
+    const float base_yaw_rad = DEG2RAD(yaw + ops->setup.yaw);
+    ops->R_base.cos          = cosf(base_yaw_rad);
+    ops->R_base.sin          = sinf(base_yaw_rad);
 }
 
 #ifdef __cplusplus
