@@ -48,7 +48,7 @@
  * 所以最后的更新计算函数可以统一为
  *
  *          p   = p_offset + R_base * pf - Rf * p_base;
- *          yaw = yaw_f + theta_base
+ *          yaw = yaw_f + theta_n
  *
  */
 
@@ -113,10 +113,11 @@ typedef struct
 
     struct
     {
-        float theta;
         float cos;
         float sin;
     } R_base;
+
+    float theta_offset;
 
     struct
     {

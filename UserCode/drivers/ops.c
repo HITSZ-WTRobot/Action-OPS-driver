@@ -184,7 +184,7 @@ static void CarCenterPose_Calc(OPS_t* ops)
               + ops->R_base.sin * xf + ops->R_base.cos * yf      //+ R_base * p_ow
               - Rf.sin * ops->p_base.x - Rf.cos * ops->p_base.y; //  - R_ow * p_base
 
-    ops->Cyaw = yaw_f + ops->R_base.theta;
+    ops->Cyaw = yaw_f + ops->theta_offset;
 }
 
 /**
@@ -305,7 +305,7 @@ void OPS_WorldCoord_Reset(OPS_t* ops)
     ops->p_offset.x = ops->setup.x;
     ops->p_offset.y = ops->setup.y;
 
-    ops->R_base.theta = ops->setup.yaw;
+    ops->theta_offset = 0;
     ops->R_base.cos   = cosf(DEG2RAD(ops->setup.yaw));
     ops->R_base.sin   = sinf(DEG2RAD(ops->setup.yaw));
 }
@@ -327,8 +327,8 @@ void OPS_ResetByWorldPose(OPS_t* ops, const float x, const float y, const float 
     ops->p_offset.x = ops->p_base.x + x;
     ops->p_offset.y = ops->p_base.y + y;
 
-    ops->R_base.theta        = yaw + ops->setup.yaw;
-    const float base_yaw_rad = DEG2RAD(ops->R_base.theta);
+    ops->theta_offset        = yaw;
+    const float base_yaw_rad = DEG2RAD(yaw + ops->setup.yaw);
     ops->R_base.cos          = cosf(base_yaw_rad);
     ops->R_base.sin          = sinf(base_yaw_rad);
 }
